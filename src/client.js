@@ -54,6 +54,7 @@ import {randomString} from './randomstring';
 import {PushProcessor} from "./pushprocessor";
 import {encodeBase64, decodeBase64} from "./crypto/olmlib";
 import { User } from "./models/user";
+import {AutoDiscovery} from "./autodiscovery";
 
 const SCROLLBACK_DELAY_MS = 3000;
 export const CRYPTO_ENABLED = isCryptoAvailable();
@@ -109,6 +110,9 @@ function keyFromRecoverySession(session, decryptionKey) {
  *     Should only be useful for devices with end-to-end crypto enabled.
  *     If provided, opts.deviceId and opts.userId should **NOT** be provided
  *     (they are present in the exported data).
+ *
+ * @param {string} opts.pickleKey Key used to pickle olm objects or other
+ *     sensitive data.
  *
  * @param {IdentityServerProvider} [opts.identityServer]
  * Optional. A provider object with one function `getAccessToken`, which is a
@@ -284,6 +288,8 @@ export function MatrixClient(opts) {
             // will be used during async initialization of the crypto
             this._exportedOlmDeviceToImport = opts.deviceToImport.olmDevice;
         }
+    } else if (opts.pickleKey) {
+        this.pickleKey = opts.pickleKey;
     }
 
     this.scheduler = opts.scheduler;
@@ -324,7 +330,7 @@ export function MatrixClient(opts) {
     this._isGuest = false;
     this._ongoingScrollbacks = {};
     this.timelineSupport = Boolean(opts.timelineSupport);
-    this.urlPreviewCache = {};
+    this.urlPreviewCache = {}; // key=preview key, value=Promise for preview (may be an error)
     this._notifTimelineSet = null;
     this.unstableClientRelationAggregation = !!opts.unstableClientRelationAggregation;
 
@@ -746,6 +752,7 @@ MatrixClient.prototype.initCrypto = async function() {
     logger.log("Crypto: initialising crypto object...");
     await crypto.init({
         exportedOlmDevice: this._exportedOlmDeviceToImport,
+        pickleKey: this.pickleKey,
     });
     delete this._exportedOlmDeviceToImport;
 
@@ -963,6 +970,20 @@ MatrixClient.prototype.findVerificationRequestDMInProgress = function(roomId) {
 };
 
 /**
+ * Returns all to-device verification requests that are already in progress for the given user id
+ *
+ * @param {string} userId the ID of the user to query
+ *
+ * @returns {module:crypto/verification/request/VerificationRequest[]} the VerificationRequests that are in progress
+ */
+MatrixClient.prototype.getVerificationRequestsToDeviceInProgress = function(userId) {
+    if (this._crypto === null) {
+        throw new Error("End-to-end encryption disabled");
+    }
+    return this._crypto.getVerificationRequestsToDeviceInProgress(userId);
+};
+
+/**
  * Request a key verification from another user.
  *
  * @param {string} userId the user to request verification with
@@ -1068,17 +1089,6 @@ function wrapCryptoFuncs(MatrixClient, names) {
     }
 }
 
- /**
- * Generate new cross-signing keys.
- * The cross-signing API is currently UNSTABLE and may change without notice.
- *
- * @function module:client~MatrixClient#resetCrossSigningKeys
- * @param {object} authDict Auth data to supply for User-Interactive auth.
- * @param {CrossSigningLevel} [level] the level of cross-signing to reset.  New
- * keys will be created for the given level and below.  Defaults to
- * regenerating all keys.
- */
-
 /**
  * Get the user's cross-signing key ID.
  * The cross-signing API is currently UNSTABLE and may change without notice.
@@ -1148,7 +1158,6 @@ function wrapCryptoFuncs(MatrixClient, names) {
  * @param {module:models/room} room the room the event is in
  */
 wrapCryptoFuncs(MatrixClient, [
-    "resetCrossSigningKeys",
     "getCrossSigningId",
     "getStoredCrossSigningForUser",
     "checkUserTrust",
@@ -1163,20 +1172,23 @@ wrapCryptoFuncs(MatrixClient, [
 ]);
 
 /**
- * Check if the sender of an event is verified
- * The cross-signing API is currently UNSTABLE and may change without notice.
+ * Get information about the encryption of an event
  *
- * @param {MatrixEvent} event event to be checked
+ * @function module:client~MatrixClient#getEventEncryptionInfo
  *
- * @returns {DeviceTrustLevel}
+ * @param {module:models/event.MatrixEvent} event event to be checked
+ *
+ * @return {object} An object with the fields:
+ *    - encrypted: whether the event is encrypted (if not encrypted, some of the
+ *      other properties may not be set)
+ *    - senderKey: the sender's key
+ *    - algorithm: the algorithm used to encrypt the event
+ *    - authenticated: whether we can be sure that the owner of the senderKey
+ *      sent the event
+ *    - sender: the sender's device information, if available
+ *    - mismatchedSender: if the event's ed25519 and curve25519 keys don't match
+ *      (only meaningful if `sender` is set)
  */
-MatrixClient.prototype.checkEventSenderTrust = async function(event) {
-    const device = await this.getEventSenderDeviceInfo(event);
-    if (!device) {
-        return 0;
-    }
-    return await this._crypto.checkDeviceTrust(event.getSender(), device.deviceId);
-};
 
 /**
  * Create a recovery key from a user-supplied passphrase.
@@ -1306,6 +1318,7 @@ MatrixClient.prototype.checkEventSenderTrust = async function(event) {
  */
 
 wrapCryptoFuncs(MatrixClient, [
+    "getEventEncryptionInfo",
     "createRecoveryKeyFromPassphrase",
     "bootstrapSecretStorage",
     "addSecretStorageKey",
@@ -1971,7 +1984,11 @@ MatrixClient.prototype._restoreKeyBackup = function(
             }
         }
 
-        return this.importRoomKeys(keys, { progressCallback });
+        return this.importRoomKeys(keys, {
+            progressCallback,
+            untrusted: true,
+            source: "backup",
+        });
     }).then(() => {
         return this._crypto.setTrustedBackupPubKey(backupPubKey);
     }).then(() => {
@@ -2995,25 +3012,32 @@ MatrixClient.prototype.setRoomReadMarkers = async function(
  * May return synthesized attributes if the URL lacked OG meta.
  */
 MatrixClient.prototype.getUrlPreview = function(url, ts, callback) {
+    // bucket the timestamp to the nearest minute to prevent excessive spam to the server
+    // Surely 60-second accuracy is enough for anyone.
+    ts = Math.floor(ts / 60000) * 60000;
+
     const key = ts + "_" + url;
-    const og = this.urlPreviewCache[key];
-    if (og) {
-        return Promise.resolve(og);
+
+    // If there's already a request in flight (or we've handled it), return that instead.
+    const cachedPreview = this.urlPreviewCache[key];
+    if (cachedPreview) {
+        if (callback) {
+            cachedPreview.then(callback).catch(callback);
+        }
+        return cachedPreview;
     }
 
-    const self = this;
-    return this._http.authedRequest(
+    const resp = this._http.authedRequest(
         callback, "GET", "/preview_url", {
             url: url,
             ts: ts,
         }, undefined, {
             prefix: PREFIX_MEDIA_R0,
         },
-    ).then(function(response) {
-        // TODO: expire cache occasionally
-        self.urlPreviewCache[key] = response;
-        return response;
-    });
+    );
+    // TODO: Expire the URL preview cache sometimes
+    this.urlPreviewCache[key] = resp;
+    return resp;
 };
 
 /**
@@ -3514,46 +3538,6 @@ MatrixClient.prototype.setPresence = function(opts, callback) {
     );
 };
 
-function _presenceList(callback, client, opts, method) {
-  const path = utils.encodeUri("/presence/list/$userId", {
-      $userId: client.credentials.userId,
-  });
-  return client._http.authedRequest(callback, method, path, undefined, opts);
-}
-
-/**
-* Retrieve current user presence list.
-* @param {module:client.callback} callback Optional.
-* @return {Promise} Resolves: TODO
-* @return {module:http-api.MatrixError} Rejects: with an error response.
-*/
-MatrixClient.prototype.getPresenceList = function(callback) {
-  return _presenceList(callback, this, undefined, "GET");
-};
-
-/**
-* Add users to the current user presence list.
-* @param {module:client.callback} callback Optional.
-* @param {string[]} userIds
-* @return {Promise} Resolves: TODO
-* @return {module:http-api.MatrixError} Rejects: with an error response.
-*/
-MatrixClient.prototype.inviteToPresenceList = function(callback, userIds) {
-  const opts = {"invite": userIds};
-  return _presenceList(callback, this, opts, "POST");
-};
-
-/**
-* Drop users from the current user presence list.
-* @param {module:client.callback} callback Optional.
-* @param {string[]} userIds
-* @return {Promise} Resolves: TODO
-* @return {module:http-api.MatrixError} Rejects: with an error response.
-**/
-MatrixClient.prototype.dropFromPresenceList = function(callback, userIds) {
-  const opts = {"drop": userIds};
-  return _presenceList(callback, this, opts, "POST");
-};
 
 /**
  * Retrieve older messages from the given room and put them in the timeline.
@@ -4755,6 +4739,9 @@ MatrixClient.prototype.deactivateSynapseUser = function(userId) {
  * @param {Boolean=} opts.lazyLoadMembers True to not load all membership events during
  * initial sync but fetch them when needed by calling `loadOutOfBandMembers`
  * This will override the filter option at this moment.
+ * @param {Number=} opts.clientWellKnownPollPeriod The number of seconds between polls
+ * to /.well-known/matrix/client, undefined to disable. This should be in the order of hours.
+ * Default: undefined.
  */
 MatrixClient.prototype.startClient = async function(opts) {
     if (this.clientRunning) {
@@ -4803,6 +4790,29 @@ MatrixClient.prototype.startClient = async function(opts) {
     this._clientOpts = opts;
     this._syncApi = new SyncApi(this, opts);
     this._syncApi.sync();
+
+    if (opts.clientWellKnownPollPeriod !== undefined) {
+        this._clientWellKnownIntervalID =
+            setInterval(() => {
+                this._fetchClientWellKnown();
+            }, 1000 * opts.clientWellKnownPollPeriod);
+        this._fetchClientWellKnown();
+    }
+};
+
+MatrixClient.prototype._fetchClientWellKnown = async function() {
+    try {
+        this._clientWellKnown = await AutoDiscovery.getRawClientConfig(this.getDomain());
+        this.emit("WellKnown.client", this._clientWellKnown);
+    } catch (err) {
+        logger.error("Failed to get client well-known", err);
+        this._clientWellKnown = undefined;
+        this.emit("WellKnown.error", err);
+    }
+};
+
+MatrixClient.prototype.getClientWellKnown = function() {
+    return this._clientWellKnown;
 };
 
 /**
@@ -4844,6 +4854,9 @@ MatrixClient.prototype.stopClient = function() {
         this._peekSync.stopPeeking();
     }
     global.clearTimeout(this._checkTurnServersTimeoutID);
+    if (this._clientWellKnownIntervalID !== undefined) {
+        global.clearInterval(this._clientWellKnownIntervalID);
+    }
 };
 
 /**
@@ -5596,8 +5609,9 @@ MatrixClient.prototype.generateClientSecret = function() {
  * Fires whenever new user-scoped account_data is added.
  * @event module:client~MatrixClient#"accountData"
  * @param {MatrixEvent} event The event describing the account_data just added
+ * @param {MatrixEvent} event The previous account data, if known.
  * @example
- * matrixClient.on("accountData", function(event){
+ * matrixClient.on("accountData", function(event, oldEvent){
  *   myAccountData[event.type] = event.content;
  * });
  */

@@ -1,3 +1,116 @@
+Changes in [7.1.0](https://github.com/matrix-org/matrix-js-sdk/releases/tag/v7.1.0) (2020-07-03)
+================================================================================================
+[Full Changelog](https://github.com/matrix-org/matrix-js-sdk/compare/v7.1.0-rc.1...v7.1.0)
+
+* No changes since rc.1
+
+Changes in [7.1.0-rc.1](https://github.com/matrix-org/matrix-js-sdk/releases/tag/v7.1.0-rc.1) (2020-07-01)
+==========================================================================================================
+[Full Changelog](https://github.com/matrix-org/matrix-js-sdk/compare/v7.0.0...v7.1.0-rc.1)
+
+ * Ask general crypto callbacks for 4S privkey if operation adapter doesn't
+   have it yet
+   [\#1414](https://github.com/matrix-org/matrix-js-sdk/pull/1414)
+ * Fix ICreateClientOpts missing idBaseUrl
+   [\#1413](https://github.com/matrix-org/matrix-js-sdk/pull/1413)
+ * Increase max event listeners for rooms
+   [\#1411](https://github.com/matrix-org/matrix-js-sdk/pull/1411)
+ * Don't trust keys megolm received from backup for verifying the sender
+   [\#1406](https://github.com/matrix-org/matrix-js-sdk/pull/1406)
+ * Raise the last known account data / state event for an update
+   [\#1410](https://github.com/matrix-org/matrix-js-sdk/pull/1410)
+ * Isolate encryption bootstrap side-effects
+   [\#1380](https://github.com/matrix-org/matrix-js-sdk/pull/1380)
+ * Add method to get current in-flight to-device requests
+   [\#1405](https://github.com/matrix-org/matrix-js-sdk/pull/1405)
+
+Changes in [7.0.0](https://github.com/matrix-org/matrix-js-sdk/releases/tag/v7.0.0) (2020-06-23)
+================================================================================================
+[Full Changelog](https://github.com/matrix-org/matrix-js-sdk/compare/v7.0.0-rc.1...v7.0.0)
+
+* No changes since rc.1
+
+Changes in [7.0.0-rc.1](https://github.com/matrix-org/matrix-js-sdk/releases/tag/v7.0.0-rc.1) (2020-06-17)
+==========================================================================================================
+[Full Changelog](https://github.com/matrix-org/matrix-js-sdk/compare/v6.2.2...v7.0.0-rc.1)
+
+BREAKING CHANGES
+---
+
+ * Presence lists were removed from the spec in r0.5.0, and the corresponding methods have now been removed here as well:
+   * `getPresenceList`
+   * `inviteToPresenceList`
+   * `dropFromPresenceList`
+
+All changes
+---
+
+ * Remove support for unspecced device-specific push rules
+   [\#1404](https://github.com/matrix-org/matrix-js-sdk/pull/1404)
+ * Use existing session id for fetching flows as to not get a new session
+   [\#1403](https://github.com/matrix-org/matrix-js-sdk/pull/1403)
+ * Upgrade deps
+   [\#1400](https://github.com/matrix-org/matrix-js-sdk/pull/1400)
+ * Bring back backup key format migration
+   [\#1398](https://github.com/matrix-org/matrix-js-sdk/pull/1398)
+ * Fix: more informative error message when we cant find a key to decrypt with
+   [\#1313](https://github.com/matrix-org/matrix-js-sdk/pull/1313)
+ * Add js-sdk mechanism for polling client well-known for config
+   [\#1394](https://github.com/matrix-org/matrix-js-sdk/pull/1394)
+ * Fix verification request timeouts to match spec
+   [\#1388](https://github.com/matrix-org/matrix-js-sdk/pull/1388)
+ * Drop presence list methods
+   [\#1391](https://github.com/matrix-org/matrix-js-sdk/pull/1391)
+ * Batch up URL previews to prevent excessive requests
+   [\#1395](https://github.com/matrix-org/matrix-js-sdk/pull/1395)
+
+Changes in [6.2.2](https://github.com/matrix-org/matrix-js-sdk/releases/tag/v6.2.2) (2020-06-16)
+================================================================================================
+[Full Changelog](https://github.com/matrix-org/matrix-js-sdk/compare/v6.2.1...v6.2.2)
+
+ * Use existing session id for fetching flows as to not get a new session
+   [\#1407](https://github.com/matrix-org/matrix-js-sdk/pull/1407)
+
+Changes in [6.2.1](https://github.com/matrix-org/matrix-js-sdk/releases/tag/v6.2.1) (2020-06-05)
+================================================================================================
+[Full Changelog](https://github.com/matrix-org/matrix-js-sdk/compare/v6.2.0...v6.2.1)
+
+ * Bring back backup key format migration
+   [\#1399](https://github.com/matrix-org/matrix-js-sdk/pull/1399)
+
+Changes in [6.2.0](https://github.com/matrix-org/matrix-js-sdk/releases/tag/v6.2.0) (2020-06-04)
+================================================================================================
+[Full Changelog](https://github.com/matrix-org/matrix-js-sdk/compare/v6.2.0-rc.1...v6.2.0)
+
+ * No changes since rc.1
+
+Changes in [6.2.0-rc.1](https://github.com/matrix-org/matrix-js-sdk/releases/tag/v6.2.0-rc.1) (2020-06-02)
+==========================================================================================================
+[Full Changelog](https://github.com/matrix-org/matrix-js-sdk/compare/v6.1.0...v6.2.0-rc.1)
+
+ * Make auth argument in the register request compliant with r0.6.0
+   [\#1304](https://github.com/matrix-org/matrix-js-sdk/pull/1304)
+ * Send the wrong auth params with the right auth params
+   [\#1393](https://github.com/matrix-org/matrix-js-sdk/pull/1393)
+ * encrypt cached keys with pickle key
+   [\#1387](https://github.com/matrix-org/matrix-js-sdk/pull/1387)
+ * Fix replying to key share requests
+   [\#1385](https://github.com/matrix-org/matrix-js-sdk/pull/1385)
+ * Add dist to package.json files so CDNs can serve it
+   [\#1384](https://github.com/matrix-org/matrix-js-sdk/pull/1384)
+ * Fix getVersion warning saying undefined room
+   [\#1382](https://github.com/matrix-org/matrix-js-sdk/pull/1382)
+ * Combine the two places we processed client-level default push rules
+   [\#1379](https://github.com/matrix-org/matrix-js-sdk/pull/1379)
+ * make MAC check robust against unpadded vs padded base64 differences
+   [\#1378](https://github.com/matrix-org/matrix-js-sdk/pull/1378)
+ * Remove key backup format migration
+   [\#1375](https://github.com/matrix-org/matrix-js-sdk/pull/1375)
+ * Add simple browserify browser-matrix.js tests
+   [\#1241](https://github.com/matrix-org/matrix-js-sdk/pull/1241)
+ * support new key agreement method for SAS
+   [\#1376](https://github.com/matrix-org/matrix-js-sdk/pull/1376)
+
 Changes in [6.1.0](https://github.com/matrix-org/matrix-js-sdk/releases/tag/v6.1.0) (2020-05-19)
 ================================================================================================
 [Full Changelog](https://github.com/matrix-org/matrix-js-sdk/compare/v6.1.0-rc.1...v6.1.0)
