@@ -87,7 +87,7 @@ export const MatrixEvent = function(
     // amount of needless string duplication. This can save moderate amounts of
     // memory (~10% on a 350MB heap).
     // 'membership' at the event level (rather than the content level) is a legacy
-    // field that Riot never otherwise looks at, but it will still take up a lot
+    // field that Element never otherwise looks at, but it will still take up a lot
     // of space if we don't intern it.
     ["state_key", "type", "sender", "room_id", "membership"].forEach((prop) => {
         if (!event[prop]) {
@@ -164,12 +164,24 @@ export const MatrixEvent = function(
      * so it can be easily accessed from the timeline.
      */
     this.verificationRequest = null;
+
+    /* The txnId with which this event was sent if it was during this session,
+       allows for a unique ID which does not change when the event comes back down sync.
+     */
+    this._txnId = null;
+
+    /* Set an approximate timestamp for the event relative the local clock.
+     * This will inherently be approximate because it doesn't take into account
+     * the time between the server putting the 'age' field on the event as it sent
+     * it to us and the time we're now constructing this event, but that's better
+     * than assuming the local clock is in sync with the origin HS's clock.
+     */
+    this._localTimestamp = Date.now() - this.getAge();
 };
 utils.inherits(MatrixEvent, EventEmitter);
 
 
 utils.extend(MatrixEvent.prototype, {
-
     /**
      * Get the event_id for this event.
      * @return {string} The event ID, e.g. <code>$143350589368169JsLZx:localhost
@@ -307,11 +319,12 @@ utils.extend(MatrixEvent.prototype, {
 
     /**
      * Get the age of the event when this function was called.
-     * Relies on the local clock being in sync with the clock of the original homeserver.
+     * This is the 'age' field adjusted according to how long this client has
+     * had the event.
      * @return {Number} The age of this event in milliseconds.
      */
     getLocalAge: function() {
-        return Date.now() - this.getTs();
+        return Date.now() - this._localTimestamp;
     },
 
     /**
@@ -622,7 +635,7 @@ utils.extend(MatrixEvent.prototype, {
      * @return {boolean} True if this event is encrypted.
      */
     isEncrypted: function() {
-        return this.event.type === "m.room.encrypted";
+        return !this.isState() && this.event.type === "m.room.encrypted";
     },
 
     /**
@@ -900,6 +913,8 @@ utils.extend(MatrixEvent.prototype, {
     /**
      * Set an event that replaces the content of this event, through an m.replace relation.
      *
+     * @fires module:models/event.MatrixEvent#"Event.replaced"
+     *
      * @param {MatrixEvent?} newEvent the event with the replacing content, if any.
      */
     makeReplaced(newEvent) {
@@ -1084,6 +1099,14 @@ utils.extend(MatrixEvent.prototype, {
 
     setVerificationRequest: function(request) {
         this.verificationRequest = request;
+    },
+
+    setTxnId(txnId) {
+        this._txnId = txnId;
+    },
+
+    getTxnId() {
+        return this._txnId;
     },
 });
 

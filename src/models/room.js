@@ -23,7 +23,7 @@ limitations under the License.
 import {EventEmitter} from "events";
 import {EventTimelineSet} from "./event-timeline-set";
 import {EventTimeline} from "./event-timeline";
-import {getHttpUriForMxc, getIdenticonUri} from "../content-repo";
+import {getHttpUriForMxc} from "../content-repo";
 import * as utils from "../utils";
 import {EventStatus, MatrixEvent} from "./event";
 import {RoomMember} from "./room-member";
@@ -358,19 +358,31 @@ Room.prototype.getPendingEvents = function() {
 
 /**
  * Check whether the pending event list contains a given event by ID.
+ * If pending event ordering is not "detached" then this returns false.
  *
  * @param {string} eventId The event ID to check for.
  * @return {boolean}
- * @throws If <code>opts.pendingEventOrdering</code> was not 'detached'
  */
 Room.prototype.hasPendingEvent = function(eventId) {
     if (this._opts.pendingEventOrdering !== "detached") {
-        throw new Error(
-            "Cannot call hasPendingEvent with pendingEventOrdering == " +
-                this._opts.pendingEventOrdering);
+        return false;
     }
 
     return this._pendingEventList.some(event => event.getId() === eventId);
+};
+
+/**
+ * Get a specific event from the pending event list, if configured, null otherwise.
+ *
+ * @param {string} eventId The event ID to check for.
+ * @return {MatrixEvent}
+ */
+Room.prototype.getPendingEvent = function(eventId) {
+    if (this._opts.pendingEventOrdering !== "detached") {
+        return null;
+    }
+
+    return this._pendingEventList.find(event => event.getId() === eventId);
 };
 
 /**
@@ -817,10 +829,6 @@ Room.prototype.getAvatarUrl = function(baseUrl, width, height, resizeMethod,
     if (mainUrl) {
         return getHttpUriForMxc(
             baseUrl, mainUrl, width, height, resizeMethod,
-        );
-    } else if (allowDefault) {
-        return getIdenticonUri(
-            baseUrl, this.roomId, width, height,
         );
     }
 
@@ -1904,14 +1912,14 @@ function calculateRoomName(room, userId, ignoreRoomNameEvent) {
     // let's try to figure out who was here before
     let leftNames = otherNames;
     // if we didn't have heroes, try finding them in the room state
-    if(!leftNames.length) {
+    if (!leftNames.length) {
         leftNames = room.currentState.getMembers().filter((m) => {
             return m.userId !== userId &&
                 m.membership !== "invite" &&
                 m.membership !== "join";
         }).map((m) => m.name);
     }
-    if(leftNames.length) {
+    if (leftNames.length) {
         return `Empty room (was ${memberNamesToRoomName(leftNames)})`;
     } else {
         return "Empty room";
